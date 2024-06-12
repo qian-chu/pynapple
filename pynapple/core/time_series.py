@@ -68,10 +68,18 @@ class BaseTsd(Base, NDArrayOperatorsMixin, abc.ABC):
     Implement most of the shared functions across concrete classes `Tsd`, `TsdFrame`, `TsdTensor`
     """
 
-    def __init__(self, t, d, time_units="s", time_support=None):
+    def __init__(self, t, d, time_units="s", time_support=None, load_array=True):
         super().__init__(t, time_units, time_support)
 
-        self.values = convert_to_array(d, "d")
+        if load_array or isinstance(d, np.ndarray):
+            self.values = convert_to_array(d, "d")
+        else:
+            if not is_array_like(d):
+                raise TypeError(
+                    "Data should be array-like, i.e. be indexable, iterable and, have attributes "
+                    "`shape`, `ndim` and, `dtype`)."
+                )
+            self.values = d
 
         assert len(self.index) == len(
             self.values
@@ -220,36 +228,38 @@ class BaseTsd(Base, NDArrayOperatorsMixin, abc.ABC):
 
     def as_array(self):
         """
-        Return the data as a numpy.ndarray
+        Return the data.
 
         Returns
         -------
-        out: numpy.ndarray
+        out: array-like
             _
         """
         return self.values
 
     def data(self):
         """
-        Return the data as a numpy.ndarray
+        Return the data.
 
         Returns
         -------
-        out: numpy.ndarray
+        out: array-like
             _
         """
         return self.values
 
     def to_numpy(self):
         """
-        Return the data as a numpy.ndarray. Mostly useful for matplotlib plotting when calling `plot(tsd)`
+        Return the data as a numpy.ndarray.
+
+        Mostly useful for matplotlib plotting when calling `plot(tsd)`.
         """
-        return self.values
+        return np.asarray(self.values)
 
     def copy(self):
         """Copy the data, index and time support"""
         return self.__class__(
-            t=self.index.copy(), d=self.values.copy(), time_support=self.time_support
+            t=self.index.copy(), d=self.values[:].copy(), time_support=self.time_support
         )
 
     def value_from(self, data, ep=None):
@@ -662,7 +672,9 @@ class TsdTensor(BaseTsd):
         The time support of the time series
     """
 
-    def __init__(self, t, d, time_units="s", time_support=None, **kwargs):
+    def __init__(
+        self, t, d, time_units="s", time_support=None, load_array=True, **kwargs
+    ):
         """
         TsdTensor initializer
 
@@ -676,8 +688,12 @@ class TsdTensor(BaseTsd):
             The time units in which times are specified ('us', 'ms', 's' [default]).
         time_support : IntervalSet, optional
             The time support of the TsdFrame object
+        load_array : bool, optional
+            Whether the data should be converted to a numpy (or jax) array. Useful when passing a memory map object like zarr.
+            Default is True. Does not apply if `d` is already a numpy array.
+
         """
-        super().__init__(t, d, time_units, time_support)
+        super().__init__(t, d, time_units, time_support, load_array)
 
         assert (
             self.values.ndim >= 3
@@ -831,7 +847,15 @@ class TsdFrame(BaseTsd):
         The time support of the time series
     """
 
-    def __init__(self, t, d=None, time_units="s", time_support=None, columns=None):
+    def __init__(
+        self,
+        t,
+        d=None,
+        time_units="s",
+        time_support=None,
+        columns=None,
+        load_array=True,
+    ):
         """
         TsdFrame initializer
         A pandas.DataFrame can be passed directly
@@ -848,6 +872,9 @@ class TsdFrame(BaseTsd):
             The time support of the TsdFrame object
         columns : iterables
             Column names
+        load_array : bool, optional
+            Whether the data should be converted to a numpy (or jax) array. Useful when passing a memory map object like zarr.
+            Default is True. Does not apply if `d` is already a numpy array.
         """
 
         c = columns
@@ -859,7 +886,7 @@ class TsdFrame(BaseTsd):
         else:
             assert d is not None, "Missing argument d when initializing TsdFrame"
 
-        super().__init__(t, d, time_units, time_support)
+        super().__init__(t, d, time_units, time_support, load_array)
 
         assert self.values.ndim <= 2, "Data should be 1 or 2 dimensional."
 
@@ -1084,7 +1111,7 @@ class TsdFrame(BaseTsd):
         np.savez(
             filename,
             t=self.index.values,
-            d=self.values,
+            d=self.values[:],
             start=self.time_support.start,
             end=self.time_support.end,
             columns=cols_name,
@@ -1108,7 +1135,9 @@ class Tsd(BaseTsd):
         The time support of the time series
     """
 
-    def __init__(self, t, d=None, time_units="s", time_support=None, **kwargs):
+    def __init__(
+        self, t, d=None, time_units="s", time_support=None, load_array=True, **kwargs
+    ):
         """
         Tsd Initializer.
 
@@ -1122,6 +1151,9 @@ class Tsd(BaseTsd):
             The time units in which times are specified ('us', 'ms', 's' [default])
         time_support : IntervalSet, optional
             The time support of the tsd object
+        load_array : bool, optional
+            Whether the data should be converted to a numpy (or jax) array. Useful when passing a memory map object like zarr.
+            Default is True. Does not apply if `d` is already a numpy array.
         """
         if isinstance(t, pd.Series):
             d = t.values
@@ -1129,7 +1161,7 @@ class Tsd(BaseTsd):
         else:
             assert d is not None, "Missing argument d when initializing Tsd"
 
-        super().__init__(t, d, time_units, time_support)
+        super().__init__(t, d, time_units, time_support, load_array)
 
         assert self.values.ndim == 1, "Data should be 1 dimensional"
 

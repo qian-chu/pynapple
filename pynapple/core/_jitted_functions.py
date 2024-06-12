@@ -9,10 +9,11 @@ from numba import jit, njit, prange
 def jitrestrict(time_array, starts, ends):
     n = len(time_array)
     m = len(starts)
-    ix = np.zeros(n, dtype=np.bool_)
+    ix = np.zeros(n, dtype=np.int64)
 
     k = 0
     t = 0
+    x = 0
 
     while ends[k] < time_array[t]:
         k += 1
@@ -21,8 +22,6 @@ def jitrestrict(time_array, starts, ends):
         # Outside
         while t < n:
             if time_array[t] >= starts[k]:
-                # ix[t] = True
-                # t += 1
                 break
             t += 1
 
@@ -32,7 +31,8 @@ def jitrestrict(time_array, starts, ends):
                 k += 1
                 break
             else:
-                ix[t] = True
+                ix[x] = t
+                x += 1
             t += 1
 
         if k == m:
@@ -40,18 +40,19 @@ def jitrestrict(time_array, starts, ends):
         if t == n:
             break
 
-    return ix
+    return ix[0:x]
 
 
 @jit(nopython=True)
 def jitrestrict_with_count(time_array, starts, ends):
     n = len(time_array)
     m = len(starts)
-    ix = np.zeros(n, dtype=np.bool_)
+    ix = np.zeros(n, dtype=np.int64)
     count = np.zeros(m, dtype=np.int64)
 
     k = 0
     t = 0
+    x = 0
 
     while ends[k] < time_array[t]:
         k += 1
@@ -60,9 +61,6 @@ def jitrestrict_with_count(time_array, starts, ends):
         # Outside
         while t < n:
             if time_array[t] >= starts[k]:
-                # ix[t] = True
-                # count[k] += 1
-                # t += 1
                 break
             t += 1
 
@@ -72,8 +70,9 @@ def jitrestrict_with_count(time_array, starts, ends):
                 k += 1
                 break
             else:
-                ix[t] = True
+                ix[x] = t
                 count[k] += 1
+                x += 1
             t += 1
 
         if k == m:
@@ -81,7 +80,7 @@ def jitrestrict_with_count(time_array, starts, ends):
         if t == n:
             break
 
-    return ix, count
+    return ix[0:x], count
 
 
 @jit(nopython=True)
@@ -160,6 +159,7 @@ def jitcount(time_array, starts, ends, bin_size):
                         break
 
                 lbound += bin_size
+                lbound = np.round(lbound, 9)
                 b += 1
         t = maxt
         k += 1
@@ -312,11 +312,16 @@ def jitthreshold(time_array, data_array, starts, ends, thr, method="above"):
     return (new_time_array, new_data_array, new_starts, new_ends)
 
 
-@jit(nopython=True)
 def jitbin_array(time_array, data_array, starts, ends, bin_size):
+    """Slice first for compatibility with lazy loading."""
     idx, countin = jitrestrict_with_count(time_array, starts, ends)
-    time_array = time_array[idx]
-    data_array = data_array[idx]
+    return _jitbin_array(
+        countin, time_array[idx], data_array[idx], starts, ends, bin_size
+    )
+
+
+@jit(nopython=True)
+def _jitbin_array(countin, time_array, data_array, starts, ends, bin_size):
 
     m = starts.shape[0]
     f = data_array.shape[1:]
@@ -358,6 +363,7 @@ def jitbin_array(time_array, data_array, starts, ends, bin_size):
                         break
 
                 lbound += bin_size
+                lbound = np.round(lbound, 9)
                 b += 1
         t = maxt
         k += 1
