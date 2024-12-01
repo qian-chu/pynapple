@@ -73,7 +73,7 @@ def _walk_folder(tree, folder):
 
 class Folder(UserDict):
     """
-    Dictionnary like object to walk and loop through nested folders.
+    Base class for all type of folders (i.e. Project, Subject, Sessions, ...).
     Handles files and sub-folders discovery
 
     Attributes

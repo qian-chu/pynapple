@@ -1,5 +1,13 @@
 """
-Functions to compute correlograms of timestamps data.
+This module holds the functions to compute discrete cross-correlogram
+for timestamps data (i.e. spike times).
+
+| Function | Description |
+|------|------|
+| `nap.compute_autocorrelogram` | Autocorrelograms from a TsGroup object |
+| `nap.compute_crosscorrelogram` | Crosscorrelogram from a TsGroup object |
+| `nap.compute_eventcorrelogram` | Crosscorrelogram between a TsGroup object and a Ts object |
+
 """
 
 import inspect

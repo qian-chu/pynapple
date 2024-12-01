@@ -1,5 +1,11 @@
 """
-Functions to compute power spectral density and mean power spectral density.
+This module contains functions to compute power spectral density and mean power spectral density.
+
+| Function | Description |
+|------|------|
+| `compute_power_spectral_density` | Compute Power Spectral Density over a single epoch |
+| `compute_mean_power_spectral_density` | Compute Mean Power Spectral Density over multiple epochs |
+
 """
 
 import inspect
@@ -50,7 +56,6 @@ def compute_power_spectral_density(
     sig, fs=None, ep=None, full_range=False, norm=False, n=None
 ):
     """
-    Compute Power Spectral Density over a single epoch.
     Perform numpy fft on sig, returns output assuming a constant sampling rate for the signal.
 
     Parameters
@@ -116,7 +121,7 @@ def compute_mean_power_spectral_density(
     time_unit="s",
 ):
     """
-    Compute Mean Power Spectral Density over multiple epochs of same size.
+    Compute mean power spectral density by averaging FFT over epochs of same size.
 
     The parameter `interval_size` controls the duration of the epochs.
 

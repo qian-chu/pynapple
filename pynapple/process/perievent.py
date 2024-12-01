@@ -1,4 +1,4 @@
-"""Functions to realign time series relative to a reference time.
+"""Perievent functions
 
 """
 
