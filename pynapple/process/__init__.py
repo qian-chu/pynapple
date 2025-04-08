@@ -23,6 +23,7 @@ from .randomize import (
     shuffle_ts_intervals,
 )
 from .spectrum import (
+    compute_fft,
     compute_mean_power_spectral_density,
     compute_power_spectral_density,
 )
@@ -35,4 +36,5 @@ from .tuning_curves import (
     compute_2d_tuning_curves_continuous,
     compute_discrete_tuning_curves,
 )
+from .warping import build_tensor, warp_tensor
 from .wavelets import compute_wavelet_transform, generate_morlet_filterbank

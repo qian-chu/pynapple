@@ -1,4 +1,4 @@
-"""Filtering module."""
+"""Functions for highpass, lowpass, bandpass or bandstop filtering."""
 
 import inspect
 from collections.abc import Iterable
@@ -89,10 +89,7 @@ def _compute_butterworth_filter(
             slc = data.get_slice(start=ep.start[0], end=ep.end[0])
             out[slc] = sosfiltfilt(sos, data.d[slc], axis=0)
 
-    kwargs = dict(t=data.t, d=out, time_support=data.time_support)
-    if isinstance(data, nap.TsdFrame):
-        kwargs["columns"] = data.columns
-    return data.__class__(**kwargs)
+    return data._define_instance(data.t, data.time_support, values=out)
 
 
 def _compute_spectral_inversion(kernel):
@@ -200,7 +197,7 @@ def _compute_filter(
     """
     Filter the signal.
     """
-    if not isinstance(data, nap.time_series.BaseTsd):
+    if not isinstance(data, nap.time_series._BaseTsd):
         raise ValueError(
             f"Invalid value: {data}. First argument should be of type Tsd, TsdFrame or TsdTensor"
         )
