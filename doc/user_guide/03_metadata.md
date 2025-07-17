@@ -123,7 +123,7 @@ print(tsdframe)
 ```
 
 ## Adding metadata after initialization
-After creation, metadata can be added using the class method `set_info()`. Additionally, single metadata fields can be added as a dictionary-like key or as an attribute, with a few noted exceptions outlined below.
+After creation, metadata can be added using the class method [`set_info()`](pynapple.TsdFrame.set_info). Additionally, single metadata fields can be added as a dictionary-like key or as an attribute, with a few noted exceptions outlined below.
 
 ```{admonition} Note
 The remaining metadata examples will be shown on a `TsGroup` object; however, all examples can be directly applied to `IntervalSet` and `TsdFrame` objects.
@@ -150,13 +150,20 @@ tsgroup.label=["MUA", "good", "good", "good"]
 print(tsgroup)
 ```
 
+## Allowed data types
+As long as the length of the metadata container matches the length of the object (number of columns for `TsdFrame` and number of indices for `IntervalSet` and `TsGroup`), elements of the metadata can be any data type.
+```{code-cell} ipython3
+tsgroup.coords = [[1,0],[0,1],[1,1],[2,1]]
+print(tsgroup)
+```
+
 ## Accessing metadata
 Metadata is stored as a pandas DataFrame, which can be previewed using the `metadata` attribute.
 ```{code-cell} ipython3
 print(tsgroup.metadata)
 ```
 
-Single metadata columns (or lists of columns) can be retrieved using the `get_info()` class method:
+Single metadata columns (or lists of columns) can be retrieved using the [`get_info()`](pynapple.TsGroup.get_info) class method:
 ```{code-cell} ipython3
 print(tsgroup.get_info("region"))
 ```
@@ -183,11 +190,12 @@ tsgroup.set_info(label=["A", "B", "C", "D"])
 print(tsgroup)
 ```
 
-## Allowed data types
-As long as the length of the metadata container matches the length of the object (number of columns for `TsdFrame` and number of indices for `IntervalSet` and `TsGroup`), elements of the metadata can be any data type.
+## Dropping metadata
+To drop metadata, use the [`drop_info()`](pynapple.TsGroup.drop_info) method. Multiple metadata columns can be dropped by passing a list of metadata names.
 ```{code-cell} ipython3
-tsgroup.coords = [[1,0],[0,1],[1,1],[2,1]]
-print(tsgroup.coords)
+print(tsgroup, "\n")
+tsgroup.drop_info("coords")
+print(tsgroup)
 ```
 
 ## Using metadata to slice objects
@@ -197,7 +205,7 @@ print(tsgroup[tsgroup.label == "A"])
 ```
 
 ## `groupby`: Using metadata to group objects
-Similar to pandas, metadata can be used to group objects based on one or more metadata columns using the object method `groupby`, where the first argument is the metadata columns name(s) to group by. This function returns a dictionary with keys corresponding to unique groups and values corresponding to object indices belonging to each group.
+Similar to pandas, metadata can be used to group objects based on one or more metadata columns using the object method [`groupby`](pynapple.TsGroup.groupby), where the first argument is the metadata columns name(s) to group by. This function returns a dictionary with keys corresponding to unique groups and values corresponding to object indices belonging to each group.
 ```{code-cell} ipython3
 print(tsgroup,"\n")
 print(tsgroup.groupby("region"))

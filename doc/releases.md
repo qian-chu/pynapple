@@ -1,5 +1,27 @@
 # Releases
 
+### 0.9.2 (2025-06-16)
+
+- Implement `time_diff` method for time series objects
+- Implement `nap.compute_isi_distribution`, which uses `time_diff` to compute the distribution of inter spike intervals
+- Fix IntervalSet and TsGroup `__repr__`
+- Fix backward compatibility for loading old npz files. 
+
+### 0.9.1 (2025-06-04)
+
+- Fix TsdFrame `__repr__`
+
+### 0.9.0 (2025-05-13)
+
+- New private class: `_MetadataMixin` and `_Metadata(UserDict)` (core/metadata_class.py). Can be inherited by:
+    - IntervalSet
+    - TsdFrame
+    - TsGroup 
+  This class assumes that whatever is inheriting it has the private property `self._initialized`.
+  `metadata`: public read-only view of metadata
+- Add a decimate method to _BaseTsd.
+- Adds support for a new derivative method which wraps `np.gradient` with support for epochs and time index
+
 ### 0.8.5 (2025-03-24)
 
 - Implements `nap.build_tensor` and `nap.warp_tensor` for trial-based data.

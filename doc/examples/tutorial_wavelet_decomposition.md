@@ -33,7 +33,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import requests
 import seaborn as sns
-import tqdm
 import pynapple as nap
 
 custom_params = {"axes.spines.right": False, "axes.spines.top": False}
@@ -57,12 +56,7 @@ if path not in os.listdir("."):
     r = requests.get(f"https://osf.io/2dfvp/download", stream=True)
     block_size = 1024 * 1024
     with open(path, "wb") as f:
-        for data in tqdm.tqdm(
-            r.iter_content(block_size),
-            unit="MB",
-            unit_scale=True,
-            total=math.ceil(int(r.headers.get("content-length", 0)) // block_size),
-        ):
+        for data in r.iter_content(block_size):
             f.write(data)
 # Let's load and print the full dataset.
 data = nap.load_file(path)
@@ -198,9 +192,9 @@ rest_ep = wake_ep.set_diff(run_ep)
 
 `run_ep` and `rest_ep` are IntervalSet with discontinuous epoch.
 
-The function `nap.compute_power_spectral_density` takes signal with a single epoch to avoid artefacts between epochs jumps.
+The function [`nap.compute_power_spectral_density`](pynapple.process.spectrum.compute_power_spectral_density) takes signal with a single epoch to avoid artefacts between epochs jumps.
 
-To compare `run_ep` with `rest_ep`, we can use the function `nap.compute_mean_power_spectral_density` which average the FFT over multiple epochs of same duration. The parameter `interval_size` controls the duration of those epochs.
+To compare `run_ep` with `rest_ep`, we can use the function [`nap.compute_mean_power_spectral_density`](pynapple.process.spectrum.compute_mean_power_spectral_density) which average the FFT over multiple epochs of same duration. The parameter `interval_size` controls the duration of those epochs.
 
 In this case, `interval_size` is equal to 1.5 seconds.
 
@@ -445,7 +439,7 @@ ax1.set_ylabel("Mean Amplitude")
 ax1.set_xlabel("Time (s)")
 ```
 
-It is then easy to isolate ripple times by using the pynapple functions `smooth` and `threshold`. In the following lines, `ripples` is smoothed with a gaussian kernel of size 0.005 second and thesholded with a value of 100.
+It is then easy to isolate ripple times by using the pynapple functions [`smooth`](pynapple.Tsd.smooth) and [`threshold`](pynapple.Tsd.threshold). In the following lines, `ripples` is smoothed with a gaussian kernel of size 0.005 second and thesholded with a value of 100.
 
 
 

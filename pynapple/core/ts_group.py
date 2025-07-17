@@ -20,7 +20,7 @@ from ._jitted_functions import jitunion, jitunion_isets
 from .base_class import _Base
 from .config import nap_config
 from .interval_set import IntervalSet
-from .metadata_class import _MetadataMixin, add_meta_docstring
+from .metadata_class import _MetadataMixin, add_meta_docstring, add_or_convert_metadata
 from .time_index import TsIndex
 from .time_series import Ts, Tsd, TsdFrame, _BaseTsd, is_array_like
 from .utils import (
@@ -242,8 +242,29 @@ class TsGroup(UserDict, _MetadataMixin):
         # Make sure data dict and index are ordered the same
         data = {k: data[k] for k in self.index}
 
+        # Also sort metadata if more than one key
+        if len(keys) > 1:
+            sort_index = np.argsort(keys)
+            if (metadata is not None) and (len(metadata) > 0):
+                if hasattr(metadata, "index") and np.all(metadata.index != keys):
+                    # check that index matches before sort if index exists
+                    raise ValueError(
+                        "Metadata index does not match the index of the TsGroup."
+                    )
+                metadata = {
+                    key: np.array(value)[sort_index] for key, value in metadata.items()
+                }
+            if kwargs:
+                # this should also check for index within individual kwargs,
+                # but we should just deprecate this in the future
+                kwargs = {
+                    key: np.array(value)[sort_index] for key, value in kwargs.items()
+                }
+
         # initialize metadata
         _MetadataMixin.__init__(self)
+        # to test compatibility with pandas
+        # self._metadata = pd.DataFrame(index=self.metadata_index)
 
         # Transform elements to Ts/Tsd objects
         for k in self.index:
@@ -278,6 +299,8 @@ class TsGroup(UserDict, _MetadataMixin):
                 data = {k: data[k].restrict(self.time_support) for k in self.index}
 
         UserDict.__init__(self, data)
+        rate = np.array([data[k].rate for k in self.index])
+        self._metadata["rate"] = rate
         self.nap_class = self.__class__.__name__
         # grab current attributes before adding metadata
         self._class_attributes = self.__dir__()
@@ -288,7 +311,7 @@ class TsGroup(UserDict, _MetadataMixin):
 
         # Adding manually the rate column if data is empty.
         if len(data) == 0:
-            self.set_info(rate=[])
+            self._metadata["rate"] = np.array([])
 
         # Trying to add argument as metainfo
         if len(kwargs):
@@ -314,6 +337,7 @@ class TsGroup(UserDict, _MetadataMixin):
         else:
             object.__setattr__(self, name, value)
 
+    @add_or_convert_metadata
     def __getattr__(self, name):
         # Necessary for backward compatibility with pickle
 
@@ -322,10 +346,11 @@ class TsGroup(UserDict, _MetadataMixin):
         if name in ("__getstate__", "__setstate__", "__reduce__", "__reduce_ex__"):
             raise AttributeError(name)
 
-        try:
-            metadata = self._metadata
-        except Exception:
-            metadata = pd.DataFrame(index=self.index)
+        # try:
+        #     metadata = self._metadata
+        # except Exception:
+        #     metadata = pd.DataFrame(index=self.index)
+        metadata = self._metadata
 
         if name == "_metadata":
             return metadata
@@ -336,11 +361,12 @@ class TsGroup(UserDict, _MetadataMixin):
 
     def __setitem__(self, key, value):
         if not self._initialized:
-            self._metadata.loc[int(key), "rate"] = float(value.rate)
+            # self._metadata.loc[int(key), "rate"] = float(value.rate)
             super().__setitem__(int(key), value)
         else:
             _MetadataMixin.__setitem__(self, key, value)
 
+    @add_or_convert_metadata
     def __getitem__(self, key):
         # Standard dict keys are Hashable
         if isinstance(key, Hashable):
@@ -379,9 +405,7 @@ class TsGroup(UserDict, _MetadataMixin):
         return self._ts_group_from_keys(key)
 
     def _ts_group_from_keys(self, keys):
-        metadata = self._metadata.loc[
-            np.sort(keys), self._metadata.columns.drop("rate")
-        ]
+        metadata = self._metadata.loc[keys].copy().drop("rate")
         return TsGroup(
             {k: self[k] for k in keys},
             time_support=self.time_support,
@@ -396,11 +420,19 @@ class TsGroup(UserDict, _MetadataMixin):
         max_rows = np.maximum(rows - 10, 2)
 
         # By default, the first three columns should always show.
-        col_names = self._metadata.columns
-        if "rate" in col_names:
-            col_names = col_names.drop("rate")
+        # Adding an extra column between actual values and metadata
+        try:
+            col_names = self._metadata.columns
+        except Exception:
+            # Necessary for backward compatibility when saving IntervalSet as pickle
+            col_names = []
 
-        headers = ["Index", "rate"] + [c for c in col_names][0:max_cols]
+        if len(col_names) and "rate" in col_names:
+            col_names.remove("rate")
+
+        col_to_show = col_names[0:max_cols]
+
+        headers = ["Index", "rate"] + col_to_show
         end = ["..."] if len(headers) > max_cols else []
         headers += end
 
@@ -410,30 +442,47 @@ class TsGroup(UserDict, _MetadataMixin):
         if len(self) > max_rows:
             n_rows = max_rows // 2
             ends = np.array([end] * n_rows)
+            if len(col_to_show):
+                try:
+                    mt_top = np.array(
+                        [
+                            _convert_iter_to_str(self._metadata[c][0:n_rows])
+                            for c in col_to_show
+                        ]
+                    ).T
+                    mt_bot = np.array(
+                        [
+                            _convert_iter_to_str(self._metadata[c][-n_rows:])
+                            for c in col_to_show
+                        ]
+                    ).T
+                except Exception:
+                    mt_top = np.ndarray(shape=(n_rows, 0))
+                    mt_bot = np.ndarray(shape=(n_rows, 0))
+            else:
+                mt_top = np.ndarray(shape=(n_rows, 0))
+                mt_bot = np.ndarray(shape=(n_rows, 0))
+
             table = np.vstack(
                 (
                     np.hstack(
                         (
                             self.index[0:n_rows, None],
-                            np.round(self._metadata[["rate"]].values[0:n_rows], 5),
-                            _convert_iter_to_str(
-                                self._metadata[col_names].values[0:n_rows, 0:max_cols]
-                            ),
+                            np.round(self._metadata["rate"], 5)[0:n_rows, None],
+                            mt_top,
                             ends,
                         ),
                         dtype=object,
                     ),
                     np.array(
-                        [["..." for _ in range(2 + len(col_names[0:max_cols]))] + end],
+                        [["..." for _ in range(2 + len(col_to_show))] + end],
                         dtype=object,
                     ),
                     np.hstack(
                         (
                             self.index[-n_rows:, None],
-                            np.round(self._metadata[["rate"]].values[-n_rows:], 5),
-                            _convert_iter_to_str(
-                                self._metadata[col_names].values[-n_rows:, 0:max_cols]
-                            ),
+                            np.round(self._metadata["rate"], 5)[-n_rows:, None],
+                            mt_bot,
                             ends,
                         ),
                         dtype=object,
@@ -442,13 +491,18 @@ class TsGroup(UserDict, _MetadataMixin):
             )
         else:
             ends = np.array([end] * len(self))
+            if len(col_to_show):
+                mt = np.array(
+                    [_convert_iter_to_str(self._metadata[c]) for c in col_to_show]
+                ).T
+            else:
+                mt = np.ndarray(shape=(len(self), 0))
+
             table = np.hstack(
                 (
                     self.index[:, None],
-                    np.round(self._metadata[["rate"]].values, 5),
-                    _convert_iter_to_str(
-                        self._metadata[col_names].values[:, 0:max_cols]
-                    ),
+                    np.round(self._metadata["rate"], 5)[:, None],
+                    mt,
                     ends,
                 ),
                 dtype=object,
@@ -540,7 +594,7 @@ class TsGroup(UserDict, _MetadataMixin):
         newgr = {}
         for k in self.index:
             newgr[k] = self.data[k].restrict(ep)
-        cols = self._metadata.columns.drop("rate")
+        cols = self._metadata.columns[1:]  # .drop("rate")
 
         return TsGroup(
             newgr, time_support=ep, bypass_check=True, metadata=self._metadata[cols]
@@ -601,9 +655,10 @@ class TsGroup(UserDict, _MetadataMixin):
         for k in self.data:
             newgr[k] = self.data[k].value_from(tsd, ep=ep, mode=mode)
 
-        cols = self._metadata.columns.drop("rate")
+        cols = self._metadata.columns[1:]  # .drop("rate")
         return TsGroup(newgr, time_support=ep, metadata=self._metadata[cols])
 
+    @add_or_convert_metadata
     def count(self, bin_size=None, ep=None, time_units="s", dtype=None):
         """
         Count occurences of events within bin_size or within a set of bins defined as an IntervalSet.
@@ -720,11 +775,23 @@ class TsGroup(UserDict, _MetadataMixin):
                     dtype=dtype,
                 )[1]
 
-            return TsdFrame(t=time_index, d=count, time_support=ep, columns=self.index)
+            metadata = self._metadata.copy()
+            # drop rate
+            metadata.drop("rate")
+            return TsdFrame(
+                t=time_index,
+                d=count,
+                time_support=ep,
+                columns=self.index,
+                metadata=metadata,
+            )
         else:
             time_index, _ = _count(np.array([]), starts, ends, bin_size, dtype=dtype)
             return TsdFrame(
-                t=time_index, d=np.empty((len(time_index), 0)), time_support=ep
+                t=time_index,
+                d=np.empty((len(time_index), 0)),
+                time_support=ep,
+                metadata=self._metadata.copy().drop("rate"),
             )
 
     def to_tsd(self, *args):
@@ -807,18 +874,18 @@ class TsGroup(UserDict, _MetadataMixin):
         """
         if len(args):
             if isinstance(args[0], pd.Series):
-                if pd.Index.equals(self._metadata.index, args[0].index):
+                if np.array_equal(self._metadata.index, args[0].index):
                     _values = args[0].values.flatten()
                 else:
                     raise RuntimeError("Index are not equals")
             elif isinstance(args[0], (np.ndarray, list)):
-                if len(self._metadata) == len(args[0]):
+                if self._metadata.shape[0] == len(args[0]):
                     _values = np.array(args[0])
                 else:
                     raise RuntimeError("Values is not the same length.")
             elif isinstance(args[0], str):
                 if args[0] in self._metadata.columns:
-                    _values = self._metadata[args[0]].values
+                    _values = self._metadata[args[0]]
                 else:
                     raise RuntimeError(
                         "Key {} not in metadata of TsGroup".format(args[0])
@@ -854,6 +921,7 @@ class TsGroup(UserDict, _MetadataMixin):
 
         return toreturn
 
+    @add_or_convert_metadata
     def trial_count(
         self, ep, bin_size, align="start", padding_value=np.nan, time_unit="s"
     ):
@@ -958,6 +1026,55 @@ class TsGroup(UserDict, _MetadataMixin):
 
         return output
 
+    def time_diff(self, align="center", epochs=None):
+        """
+        Computes the differences between subsequent timestamps.
+
+        Parameters
+        ----------
+        align: str, optional
+            Determines the time index of the resulting time differences:
+             - "start" : the start of the interval between two timestamps.
+             - "center" [default]: the center of the interval between two timestamps.
+             - "end" : the end of the interval between two timestamps.
+        epochs : IntervalSet, optional
+            The epochs on which interspike intervals are computed.
+            If None, the time support of the input is used.
+
+        Returns
+        -------
+        dict
+            A dictionary of Tsd containing the time differences for each Ts in the group.
+
+        Examples
+        --------
+        >>> import pynapple as nap
+        >>> import numpy as np
+        >>> tmp = { 0:nap.Ts(t=[1, 3, 5, 6, 8, 12], time_units='s'),1:nap.Ts(t=[2, 8, 9, 13, 14, 17], time_units='s'), 2:nap.Ts(t=[1, 2, 5, 7, 9, 12], time_units='s')}
+        >>> tsgroup = nap.TsGroup(tmp)
+        >>> epochs = nap.IntervalSet(start=2, end=9, time_units='s')
+        >>> time_diffs = tsgroup.time_diff(align="center", epochs=epochs)
+        >>> time_diffs
+        {0: Time (s)
+        ----------  --
+        4            2
+        5.5          1
+        7            2
+        dtype: float64, shape: (3,), 1: Time (s)
+        ----------  --
+        5            6
+        8.5          1
+        dtype: float64, shape: (2,), 2: Time (s)
+        ----------  --
+        3.5          3
+        6            2
+        8            2
+        dtype: float64, shape: (3,)}
+        """
+        return {
+            k: v.time_diff(align=align, epochs=epochs) for k, v in self.data.items()
+        }
+
     def get(self, start, end=None, time_units="s"):
         """Slice the `TsGroup` object from `start` to `end` such that all the timestamps within the group satisfy `start<=t<=end`.
         If `end` is None, only the timepoint closest to `start` is returned.
@@ -974,7 +1091,7 @@ class TsGroup(UserDict, _MetadataMixin):
         newgr = {}
         for k in self.index:
             newgr[k] = self.data[k].get(start, end, time_units)
-        cols = self._metadata.columns.drop("rate")
+        cols = self._metadata.columns[1:]  # .drop("rate")
 
         return TsGroup(
             newgr,
@@ -1099,7 +1216,7 @@ class TsGroup(UserDict, _MetadataMixin):
 
         """
         idx = np.digitize(self._metadata[key], bins) - 1
-        groups = self._metadata.index.groupby(idx)
+        groups = {k: self._metadata.index[idx == k] for k in np.unique(idx)}
         ix = np.unique(list(groups.keys()))
         ix = ix[ix >= 0]
         ix = ix[ix < len(bins) - 1]
@@ -1150,11 +1267,12 @@ class TsGroup(UserDict, _MetadataMixin):
                2             4        1}
 
         """
-        groups = self._metadata.groupby(key).groups
+        groups = self.groupby(key)
         sliced = {k: self[list(groups[k])] for k in groups.keys()}
         return sliced
 
     @staticmethod
+    @add_or_convert_metadata
     def merge_group(
         *tsgroups, reset_index=False, reset_time_support=False, ignore_metadata=False
     ):
@@ -1202,22 +1320,22 @@ class TsGroup(UserDict, _MetadataMixin):
         tsg1 = tsgroups[0]
         items = tsg1.items()
         keys = set(tsg1.keys())
-        metadata = tsg1._metadata
+        metadata = tsg1._metadata.copy()
 
         for i, tsg in enumerate(tsgroups[1:]):
             if not ignore_metadata:
                 if tsg1.metadata_columns != tsg.metadata_columns:
                     raise ValueError(
-                        f"TsGroup at position {i+2} has different metadata columns from previous TsGroup objects. "
+                        f"TsGroup at position {i + 2} has different metadata columns from previous TsGroup objects. "
                         "Set `ignore_metadata=True` to bypass the check."
                     )
-                metadata = pd.concat([metadata, tsg._metadata], axis=0)
+                metadata.merge(tsg._metadata)
 
             if not reset_index:
                 key_overlap = keys.intersection(tsg.keys())
                 if key_overlap:
                     raise ValueError(
-                        f"TsGroup at position {i+2} has overlapping keys {key_overlap} with previous TsGroup objects. "
+                        f"TsGroup at position {i + 2} has overlapping keys {key_overlap} with previous TsGroup objects. "
                         "Set `reset_index=True` to bypass the check."
                     )
                 keys.update(tsg.keys())
@@ -1232,7 +1350,7 @@ class TsGroup(UserDict, _MetadataMixin):
                     rtol=0,
                 ):
                     raise ValueError(
-                        f"TsGroup at position {i+2} has different time support from previous TsGroup objects. "
+                        f"TsGroup at position {i + 2} has different time support from previous TsGroup objects. "
                         "Set `reset_time_support=True` to bypass the check."
                     )
                 time_support = tsg1.time_support
@@ -1240,7 +1358,7 @@ class TsGroup(UserDict, _MetadataMixin):
             items.extend(tsg.items())
 
         if reset_index:
-            metadata.index = range(len(metadata))
+            metadata.reset_index()
             data = {i: ts[1] for i, ts in enumerate(items)}
         else:
             data = dict(items)
@@ -1248,12 +1366,12 @@ class TsGroup(UserDict, _MetadataMixin):
         if ignore_metadata:
             return TsGroup(data, time_support=time_support, bypass_check=False)
         else:
-            cols = metadata.columns.drop("rate")
+            metadata.drop("rate")
             return TsGroup(
                 data,
                 time_support=time_support,
                 bypass_check=False,
-                metadata=metadata[cols],
+                metadata=metadata,
             )
 
     def merge(
@@ -1358,6 +1476,7 @@ class TsGroup(UserDict, _MetadataMixin):
             ignore_metadata=ignore_metadata,
         )
 
+    @add_or_convert_metadata
     def save(self, filename):
         """
         Save TsGroup object in npz format. The file will contain the timestamps,
@@ -1436,7 +1555,7 @@ class TsGroup(UserDict, _MetadataMixin):
 
         dicttosave = {"type": np.array(["TsGroup"], dtype=np.str_)}
         # don't save rate in metadata since it will be re-added when loading
-        dicttosave["_metadata"] = self._metadata.drop(columns="rate").to_dict()
+        dicttosave["_metadata"] = dict(self._metadata.copy().drop("rate"))
 
         # are these things that still need to be enforced?
         # for k in self._metadata.columns:
@@ -1526,7 +1645,10 @@ class TsGroup(UserDict, _MetadataMixin):
 
         if "_metadata" in file:  # load metadata if it exists
             if file["_metadata"]:  # check that metadata is not empty
-                metainfo = pd.DataFrame.from_dict(file["_metadata"].item())
+                metainfo = file["_metadata"].item()
+                # check if first field is a dictionary, meaning it was saved from a pandas.DataFrame
+                if isinstance(next(iter(metainfo.values())), dict):
+                    metainfo = pd.DataFrame.from_dict(metainfo)
                 tsgroup.set_info(metainfo)
 
         metainfo = {}
@@ -1644,69 +1766,84 @@ class TsGroup(UserDict, _MetadataMixin):
         ... }
         >>> metadata = {"l1": [1, 2, 3], "l2": ["x", "x", "y"]}
         >>> tsgroup = nap.TsGroup(tmp,metadata=metadata)
+        >>> print(tsgroup)
+          Index     rate    l1  l2
+        -------  -------  ----  ----
+              0  0.66722     1  x
+              1  1.33445     2  x
+              2  4.00334     3  y
 
         To access a single metadata column:
 
         >>> tsgroup.get_info("l1")
-        0    1
-        1    2
-        2    3
-        Name: l1, dtype: int64
+        array([1, 2, 3])
 
         To access multiple metadata columns:
 
         >>> tsgroup.get_info(["l1", "l2"])
-           l1 l2
-        0   1  x
-        1   2  x
-        2   3  y
-
-        To access metadata of a single index:
-
-        >>> tsgroup.get_info(0)
-        rate    0.667223
-        l1             1
-        l2             x
-        Name: 0, dtype: object
-
-        To access metadata of multiple indices:
-
-        >>> tsgroup.get_info([0, 1])
-               rate  l1 l2
-        0  0.667223   1  x
-        1  1.334445   2  x
-
-        To access metadata of a single index and column:
-
-        >>> tsgroup.get_info((0, "l1"))
-        np.int64(1)
-
-        To access metadata as an attribute:
-
-        >>> tsgroup.l1
-        0    1
-        1    2
-        2    3
-        Name: l1, dtype: int64
+             l1    l2
+        0    1     x
+        1    2     x
+        2    3     y
 
         To access metadata as a key:
 
         >>> tsgroup["l1"]
-        0    1
-        1    2
-        2    3
-        Name: l1, dtype: int64
+        array([1, 2, 3])
 
         Multiple metadata columns can be accessed as keys:
 
         >>> tsgroup[["l1", "l2"]]
-           l1 l2
-        0   1  x
-        1   2  x
-        2   3  y
+             l1    l2
+        0    1     x
+        1    2     x
+        2    3     y
         """
         return _MetadataMixin.get_info(self, key)
 
+    @add_meta_docstring("drop_info")
+    def drop_info(self, key):
+        """
+        Examples
+        --------
+        >>> import pynapple as nap
+        >>> import numpy as np
+        >>> tmp = {0:nap.Ts(t=np.arange(0,200), time_units='s'),
+        ... 1:nap.Ts(t=np.arange(0,200,0.5), time_units='s'),
+        ... 2:nap.Ts(t=np.arange(0,300,0.25), time_units='s'),
+        ... }
+        >>> metadata = {"l1": [1, 2, 3], "l2": ["x", "x", "y"], "l3": [4, 5, 6]}
+        >>> tsgroup = nap.TsGroup(tmp,metadata=metadata)
+        >>> print(tsgroup)
+          Index     rate    l1  l2      l3
+        -------  -------  ----  ----  ----
+              0  0.66722     1  x        4
+              1  1.33445     2  x        5
+              2  4.00334     3  y        6
+
+        To drop a single metadata column:
+
+        >>> tsgroup.drop_info("l1")
+        >>> tsgroup
+          Index     rate  l2      l3
+        -------  -------  ----  ----
+              0  0.66722  x        4
+              1  1.33445  x        5
+              2  4.00334  y        6
+
+        To drop multiple metadata columns:
+
+        >>> tsgroup.drop_info(["l2", "l3"])
+        >>> tsgroup
+          Index     rate
+        -------  -------
+              0  0.66722
+              1  1.33445
+              2  4.00334
+        """
+        return _MetadataMixin.drop_info(self, key)
+
+    @add_or_convert_metadata
     @add_meta_docstring("groupby")
     def groupby(self, by, get_group=None):
         """
